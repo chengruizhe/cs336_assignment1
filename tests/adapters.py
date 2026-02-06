@@ -2,12 +2,18 @@ from __future__ import annotations
 
 import os
 from collections.abc import Iterable
-from typing import IO, Any, BinaryIO
+from collections import defaultdict, Counter
+from typing import IO, Any, BinaryIO, TypeAlias
 
 import numpy.typing as npt
 import torch
+import regex
 from jaxtyping import Bool, Float, Int
 from torch import Tensor
+from joblib import Parallel, delayed
+from .indexed_heap import IndexedHeap
+
+from cs336_basics.pretokenization_example import find_chunk_boundaries
 
 
 def run_linear(
@@ -452,7 +458,9 @@ def run_cross_entropy(
     raise NotImplementedError
 
 
-def run_gradient_clipping(parameters: Iterable[torch.nn.Parameter], max_l2_norm: float) -> None:
+def run_gradient_clipping(
+    parameters: Iterable[torch.nn.Parameter], max_l2_norm: float
+) -> None:
     """Given a set of parameters, clip their combined gradients to have l2 norm at most max_l2_norm.
 
     Args:
@@ -562,6 +570,33 @@ def get_tokenizer(
     raise NotImplementedError
 
 
+def pretokenize_chunck(
+    input_path: str | os.PathLike,
+    start_pos: int,
+    end_pos: int,
+    special_tokens: list[str],
+) -> dict[bytes, int]:
+    PAT = rb"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""
+
+    special_pattern = b"(" + b"|".join(regex.escape(t.encode("utf-8")) for t in special_tokens) + b")"
+    result: dict[bytes, int] = defaultdict(int)
+    
+    special_tokens_bytes = [t.encode("utf-8") for t in special_tokens]
+
+    with open(input_path, "rb") as f:
+        f.seek(start_pos)
+        chunk = f.read(end_pos - start_pos)
+        for subchunk in regex.split(special_pattern, chunk):
+            if not subchunk:
+                continue
+            if subchunk in special_tokens_bytes:
+                continue
+            for match in regex.finditer(PAT, subchunk):
+                token = match.group()
+                result[token] += 1
+    return result
+
+
 def run_train_bpe(
     input_path: str | os.PathLike,
     vocab_size: int,
@@ -589,4 +624,100 @@ def run_train_bpe(
                 representing that <token1> was merged with <token2>.
                 Merges are ordered by order of creation.
     """
-    raise NotImplementedError
+    njobs = 16
+    with open(input_path, "rb") as fp:
+        boundaries = find_chunk_boundaries(fp, njobs, b"<|endoftext|>")
+
+    # Init vocab
+    vocab = {i: bytes([i]) for i in range(256)}
+    for idx, token in enumerate(special_tokens):
+        vocab[idx + 256] = token.encode("utf-8")
+    assert len(vocab) < vocab_size
+
+    # Pre-tokentize
+    chunk_positions = [
+        (start, end) for start, end in zip(boundaries[:-1], boundaries[1:])
+    ]
+    pretokenized_chunks = Parallel(n_jobs=njobs)(
+        delayed(pretokenize_chunck)(input_path, start, end, special_tokens)
+        for start, end in chunk_positions
+    )
+    
+    pretoken_counter = Counter()
+    for x in pretokenized_chunks:
+        pretoken_counter.update(x)
+    Token: TypeAlias = tuple[bytes, ...]
+    pretoken_counts: list[tuple[Token, int]] = []
+    for k, v in pretoken_counter.items():
+        pretoken_counts.append((tuple(bytes([b]) for b in k), v))
+    
+    # Index byte pair counts
+    byte_pair_counts: dict[tuple[bytes, bytes], int] = defaultdict(int)
+    # Mapping each subtoken to a list of pre-tokens that contain it.
+    byte_pair_index: dict[tuple[bytes, bytes], set[int]] = defaultdict(set)
+    for idx, (token, count) in enumerate(pretoken_counts):
+        for i in range(len(token) - 1):
+            byte_pair = token[i:i + 2]
+            byte_pair_counts[byte_pair] += count
+            byte_pair_index[byte_pair].add(idx)
+    
+    elems = sorted(((count, pair) for pair, count in byte_pair_counts.items()), reverse=True)
+    pair_heap = IndexedHeap(max_heap=True)
+    for elem in elems:
+        # Include token into heap so we break ties with lexicographic order.
+        pair_heap.push(elem[1], elem)
+    
+    merges: list[tuple[bytes, bytes]] = []
+    while len(vocab) < vocab_size:
+        cur_pair, _ = pair_heap.pop()
+        
+        merged_bytes = b''.join(cur_pair)
+        vocab[len(vocab)] = merged_bytes
+        merges.append(cur_pair)
+
+        affected_indices = list(byte_pair_index[cur_pair])
+        
+        def apply_merge(pretoken: Token, pair: tuple[bytes, bytes]) -> Token:
+            merged_token: list[bytes] = []
+            i = 0
+            while i < len(pretoken):
+                if i < len(pretoken) - 1 and pretoken[i:i+2] == pair:
+                    merged_token.append(b''.join(pair))
+                    i += 2
+                else:
+                    merged_token.append(pretoken[i])
+                    i += 1
+            return tuple(merged_token)
+
+        def get_pairs(token: Token) -> list[tuple[bytes, bytes]]:
+            return [(token[i], token[i+1]) for i in range(len(token)-1)]
+        
+        new_pair_deltas: dict[tuple[bytes, bytes], int] = defaultdict(int)
+        for pretoken_idx in affected_indices:
+            old_token, counts = pretoken_counts[pretoken_idx]
+            old_pairs = get_pairs(old_token)
+            
+            new_token = apply_merge(old_token, cur_pair)
+            pretoken_counts[pretoken_idx] = (new_token, counts)
+            new_pairs = get_pairs(new_token)
+            
+            for pair in old_pairs:
+                byte_pair_index[pair].discard(pretoken_idx)
+                new_pair_deltas[pair] -= counts
+                
+            for pair in new_pairs:
+                byte_pair_index[pair].add(pretoken_idx)
+                new_pair_deltas[pair] += counts
+
+        # Maintain pair_heap
+        for pair, delta in new_pair_deltas.items():
+            if delta == 0:
+                continue
+            if pair not in pair_heap:
+                pair_heap.push(pair, (delta, pair))
+            else:
+                old_priority = pair_heap.get(pair)
+                new_priority = (old_priority[0] + delta, pair)
+                pair_heap.set_priority(pair, new_priority)
+            
+    return vocab, merges
