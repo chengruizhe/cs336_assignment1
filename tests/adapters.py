@@ -11,8 +11,18 @@ import regex
 from jaxtyping import Bool, Float, Int
 from torch import Tensor
 from joblib import Parallel, delayed
+
+from tests.conftest import d_model
 from .indexed_heap import IndexedHeap
 from .tokenizer import Tokenizer
+from cs336_basics.linear import Linear
+from cs336_basics.embedding import Embedding
+from cs336_basics.rmsnorm import RMSNorm
+from cs336_basics.swiglu import SwiGLU, SiLU
+from cs336_basics.rope import RotaryPositionalEmbedding
+from cs336_basics.softmax import Softmax
+from cs336_basics.attention import ScaledDotProductAttention, MultiHeadSelfAttention
+from cs336_basics.transformer import TransformerBlock, Transformer
 
 from cs336_basics.pretokenization_example import find_chunk_boundaries
 
@@ -35,8 +45,9 @@ def run_linear(
     Returns:
         Float[Tensor, "... d_out"]: The transformed output of your linear module.
     """
-
-    raise NotImplementedError
+    linear_layer = Linear(d_in, d_out)
+    linear_layer.load_state_dict({"weight": weights})
+    return linear_layer(in_features)
 
 
 def run_embedding(
@@ -58,7 +69,9 @@ def run_embedding(
         Float[Tensor, "... d_model"]: Batch of embeddings returned by your Embedding layer.
     """
 
-    raise NotImplementedError
+    embedding = Embedding(num_embeddings=vocab_size, embedding_dim=d_model)
+    embedding.load_state_dict({"weight": weights})
+    return embedding(token_ids)
 
 
 def run_swiglu(
@@ -90,7 +103,19 @@ def run_swiglu(
     # swiglu.w1.weight.data = w1_weight
     # swiglu.w2.weight.data = w2_weight
     # swiglu.w3.weight.data = w3_weight
-    raise NotImplementedError
+
+    swiglu = SwiGLU(
+        d_model=d_model,
+        d_ff=d_ff,
+    )
+    swiglu.load_state_dict(
+        {
+            "w1.weight": w1_weight,
+            "w2.weight": w2_weight,
+            "w3.weight": w3_weight,
+        }
+    )
+    return swiglu(in_features)
 
 
 def run_scaled_dot_product_attention(
@@ -111,7 +136,8 @@ def run_scaled_dot_product_attention(
     Returns:
         Float[Tensor, " ... queries d_v"]: Output of SDPA
     """
-    raise NotImplementedError
+    sdpa = ScaledDotProductAttention()
+    return sdpa(Q=Q, K=K, V=V, mask=mask)
 
 
 def run_multihead_self_attention(
@@ -145,7 +171,22 @@ def run_multihead_self_attention(
         Float[Tensor, " ... sequence_length d_out"]: Tensor with the output of running your optimized, batched multi-headed attention
         implementation with the given QKV projection weights and input features.
     """
-    raise NotImplementedError
+    d_in = in_features.shape[-1]
+    multi_head_attention = MultiHeadSelfAttention(
+        d_model=d_model,
+        num_heads=num_heads,
+        in_features=d_in,
+        rope=None,
+    )
+    multi_head_attention.load_state_dict(
+        {
+            "qkv_proj.weight": torch.cat(
+                [q_proj_weight, k_proj_weight, v_proj_weight], dim=0
+            ),
+            "output_proj.weight": o_proj_weight,
+        }
+    )
+    return multi_head_attention(in_features)
 
 
 def run_multihead_self_attention_with_rope(
@@ -185,7 +226,27 @@ def run_multihead_self_attention_with_rope(
         Float[Tensor, " ... sequence_length d_out"]: Tensor with the output of running your optimized, batched multi-headed attention
         implementation with the given QKV projection weights and input features.
     """
-    raise NotImplementedError
+    d_in = in_features.shape[-1]
+    rope = RotaryPositionalEmbedding(
+        d_k=d_model // num_heads,
+        theta=theta,
+        max_seq_len=max_seq_len,
+    )
+    multi_head_attention = MultiHeadSelfAttention(
+        d_model=d_model,
+        num_heads=num_heads,
+        in_features=d_in,
+        rope=rope,
+    )
+    multi_head_attention.load_state_dict(
+        {
+            "qkv_proj.weight": torch.cat(
+                [q_proj_weight, k_proj_weight, v_proj_weight], dim=0
+            ),
+            "output_proj.weight": o_proj_weight,
+        }
+    )
+    return multi_head_attention(in_features, token_positions)
 
 
 def run_rope(
@@ -207,7 +268,12 @@ def run_rope(
     Returns:
         Float[Tensor, " ... sequence_length d_k"]: Tensor with RoPEd input.
     """
-    raise NotImplementedError
+    rope = RotaryPositionalEmbedding(
+        theta=theta,
+        d_k=d_k,
+        max_seq_len=max_seq_len,
+    )
+    return rope(in_query_or_key, token_positions)
 
 
 def run_transformer_block(
@@ -280,7 +346,21 @@ def run_transformer_block(
         Float[Tensor, "batch sequence_length d_model"] Tensor with the output of
         running the Transformer block on the input features while using RoPE.
     """
-    raise NotImplementedError
+    assert d_model % num_heads == 0
+    rope = RotaryPositionalEmbedding(
+        theta=theta,
+        max_seq_len=max_seq_len,
+        d_k=d_model // num_heads,
+    )
+    block = TransformerBlock(
+        d_model=d_model,
+        num_heads=num_heads,
+        d_ff=d_ff,
+        rope=rope,
+    )
+
+    block.load_state_dict(weights)
+    return block(in_features)
 
 
 def run_transformer_lm(
@@ -362,7 +442,18 @@ def run_transformer_lm(
         Float[Tensor, "batch_size sequence_length vocab_size"]: Tensor with the predicted unnormalized
         next-word distribution for each token.
     """
-    raise NotImplementedError
+
+    lm = Transformer(
+        vocab_size=vocab_size,
+        context_length=context_length,
+        num_layers=num_layers,
+        d_model=d_model,
+        num_heads=num_heads,
+        d_ff=d_ff,
+        rope_theta=rope_theta,
+    )
+    lm.load_state_dict(weights)
+    return lm(in_indices)
 
 
 def run_rmsnorm(
@@ -385,7 +476,12 @@ def run_rmsnorm(
         Float[Tensor,"... d_model"]: Tensor of with the same shape as `in_features` with the output of running
         RMSNorm of the `in_features`.
     """
-    raise NotImplementedError
+    rms_norm = RMSNorm(
+        d_model=d_model,
+        eps=eps,
+    )
+    rms_norm.load_state_dict({"weight": weights})
+    return rms_norm(in_features)
 
 
 def run_silu(in_features: Float[Tensor, " ..."]) -> Float[Tensor, " ..."]:
@@ -399,7 +495,8 @@ def run_silu(in_features: Float[Tensor, " ..."]) -> Float[Tensor, " ..."]:
         Float[Tensor,"..."]: of with the same shape as `in_features` with the output of applying
         SiLU to each element.
     """
-    raise NotImplementedError
+    silu = SiLU()
+    return silu(in_features)
 
 
 def run_get_batch(
@@ -438,7 +535,8 @@ def run_softmax(in_features: Float[Tensor, " ..."], dim: int) -> Float[Tensor, "
         Float[Tensor, "..."]: Tensor of with the same shape as `in_features` with the output of
         softmax normalizing the specified `dim`.
     """
-    raise NotImplementedError
+    softmax = Softmax()
+    return softmax(in_features, dim)
 
 
 def run_cross_entropy(
@@ -581,11 +679,15 @@ def pretokenize_chunck(
     end_pos: int,
     special_tokens: list[str],
 ) -> dict[bytes, int]:
-    PAT = rb"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""
+    PAT = (
+        rb"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""
+    )
 
-    special_pattern = b"(" + b"|".join(regex.escape(t.encode("utf-8")) for t in special_tokens) + b")"
+    special_pattern = (
+        b"(" + b"|".join(regex.escape(t.encode("utf-8")) for t in special_tokens) + b")"
+    )
     result: dict[bytes, int] = defaultdict(int)
-    
+
     special_tokens_bytes = [t.encode("utf-8") for t in special_tokens]
 
     with open(input_path, "rb") as f:
@@ -647,7 +749,7 @@ def run_train_bpe(
         delayed(pretokenize_chunck)(input_path, start, end, special_tokens)
         for start, end in chunk_positions
     )
-    
+
     pretoken_counter = Counter()
     for x in pretokenized_chunks:
         pretoken_counter.update(x)
@@ -655,39 +757,41 @@ def run_train_bpe(
     pretoken_counts: list[tuple[Token, int]] = []
     for k, v in pretoken_counter.items():
         pretoken_counts.append((tuple(bytes([b]) for b in k), v))
-    
+
     # Index byte pair counts
     byte_pair_counts: dict[tuple[bytes, bytes], int] = defaultdict(int)
     # Mapping each subtoken to a list of pre-tokens that contain it.
     byte_pair_index: dict[tuple[bytes, bytes], set[int]] = defaultdict(set)
     for idx, (token, count) in enumerate(pretoken_counts):
         for i in range(len(token) - 1):
-            byte_pair = token[i:i + 2]
+            byte_pair = token[i : i + 2]
             byte_pair_counts[byte_pair] += count
             byte_pair_index[byte_pair].add(idx)
-    
-    elems = sorted(((count, pair) for pair, count in byte_pair_counts.items()), reverse=True)
+
+    elems = sorted(
+        ((count, pair) for pair, count in byte_pair_counts.items()), reverse=True
+    )
     pair_heap = IndexedHeap(max_heap=True)
     for elem in elems:
         # Include token into heap so we break ties with lexicographic order.
         pair_heap.push(elem[1], elem)
-    
+
     merges: list[tuple[bytes, bytes]] = []
     while len(vocab) < vocab_size:
         cur_pair, _ = pair_heap.pop()
-        
-        merged_bytes = b''.join(cur_pair)
+
+        merged_bytes = b"".join(cur_pair)
         vocab[len(vocab)] = merged_bytes
         merges.append(cur_pair)
 
         affected_indices = list(byte_pair_index[cur_pair])
-        
+
         def apply_merge(pretoken: Token, pair: tuple[bytes, bytes]) -> Token:
             merged_token: list[bytes] = []
             i = 0
             while i < len(pretoken):
-                if i < len(pretoken) - 1 and pretoken[i:i+2] == pair:
-                    merged_token.append(b''.join(pair))
+                if i < len(pretoken) - 1 and pretoken[i : i + 2] == pair:
+                    merged_token.append(b"".join(pair))
                     i += 2
                 else:
                     merged_token.append(pretoken[i])
@@ -695,21 +799,21 @@ def run_train_bpe(
             return tuple(merged_token)
 
         def get_pairs(token: Token) -> list[tuple[bytes, bytes]]:
-            return [(token[i], token[i+1]) for i in range(len(token)-1)]
-        
+            return [(token[i], token[i + 1]) for i in range(len(token) - 1)]
+
         new_pair_deltas: dict[tuple[bytes, bytes], int] = defaultdict(int)
         for pretoken_idx in affected_indices:
             old_token, counts = pretoken_counts[pretoken_idx]
             old_pairs = get_pairs(old_token)
-            
+
             new_token = apply_merge(old_token, cur_pair)
             pretoken_counts[pretoken_idx] = (new_token, counts)
             new_pairs = get_pairs(new_token)
-            
+
             for pair in old_pairs:
                 byte_pair_index[pair].discard(pretoken_idx)
                 new_pair_deltas[pair] -= counts
-                
+
             for pair in new_pairs:
                 byte_pair_index[pair].add(pretoken_idx)
                 new_pair_deltas[pair] += counts
@@ -724,5 +828,5 @@ def run_train_bpe(
                 old_priority = pair_heap.get(pair)
                 new_priority = (old_priority[0] + delta, pair)
                 pair_heap.set_priority(pair, new_priority)
-            
+
     return vocab, merges
