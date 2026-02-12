@@ -6,6 +6,7 @@ from collections import defaultdict, Counter
 from typing import IO, Any, BinaryIO, TypeAlias
 
 import numpy.typing as npt
+import numpy as np
 import torch
 import regex
 from jaxtyping import Bool, Float, Int
@@ -571,7 +572,16 @@ def run_gradient_clipping(
 
     The gradients of the parameters (parameter.grad) should be modified in-place.
     """
-    raise NotImplementedError
+    l2_norm = (
+        sum((p.grad.data**2).sum() for p in parameters if p.grad is not None)
+        .sqrt()
+        .item()
+    )
+    if l2_norm > max_l2_norm:
+        clipping_factor = max_l2_norm / (l2_norm + 1e-6)
+        for p in parameters:
+            if p.grad is not None:
+                p.grad.data *= clipping_factor
 
 
 def get_adamw_cls() -> Any:
@@ -606,7 +616,14 @@ def run_get_lr_cosine_schedule(
     Returns:
         Learning rate at the given iteration under the specified schedule.
     """
-    raise NotImplementedError
+    if it < warmup_iters:
+        return it / warmup_iters * max_learning_rate
+    elif it > cosine_cycle_iters:
+        return min_learning_rate
+    total_cos_iters = cosine_cycle_iters - warmup_iters
+    return min_learning_rate + 0.5 * (
+        1 + np.cos(np.pi * (it - warmup_iters) / total_cos_iters)
+    ) * (max_learning_rate - min_learning_rate)
 
 
 def run_save_checkpoint(
