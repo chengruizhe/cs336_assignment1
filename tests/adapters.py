@@ -24,6 +24,7 @@ from cs336_basics.softmax import Softmax
 from cs336_basics.attention import ScaledDotProductAttention, MultiHeadSelfAttention
 from cs336_basics.transformer import TransformerBlock, Transformer
 from cs336_basics.cross_entropy import CrossEntropyLoss
+from cs336_basics.adamw import AdamW
 
 from cs336_basics.pretokenization_example import find_chunk_boundaries
 
@@ -577,7 +578,7 @@ def get_adamw_cls() -> Any:
     """
     Returns a torch.optim.Optimizer that implements AdamW.
     """
-    raise NotImplementedError
+    return AdamW
 
 
 def run_get_lr_cosine_schedule(
