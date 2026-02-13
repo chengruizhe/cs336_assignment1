@@ -522,7 +522,23 @@ def run_get_batch(
         is the sampled input sequences, and the second tuple item is the corresponding
         language modeling labels.
     """
-    raise NotImplementedError
+    # This is so that max_start_index still has a label for next word.
+    max_start_index = len(dataset) - context_length
+    indices = torch.randperm(max_start_index, device=device)[:batch_size]
+
+    input_sequences = []
+    labels = []
+    for idx in indices:
+        input_sequences.append(
+            torch.from_numpy(dataset[idx : idx + context_length]).long()
+        )
+        labels.append(
+            torch.from_numpy(dataset[idx + 1 : idx + context_length + 1]).long()
+        )
+
+    r1 = torch.stack(input_sequences).to(device=device)
+    r2 = torch.stack(labels).to(device=device)
+    return r1, r2
 
 
 def run_softmax(in_features: Float[Tensor, " ..."], dim: int) -> Float[Tensor, " ..."]:
@@ -642,7 +658,12 @@ def run_save_checkpoint(
             we've completed.
         out (str | os.PathLike | BinaryIO | IO[bytes]): Path or file-like object to serialize the model, optimizer, and iteration to.
     """
-    raise NotImplementedError
+    state_dict = {
+        "model": model.state_dict(),
+        "optimizer": optimizer.state_dict(),
+        "iteration": iteration,
+    }
+    torch.save(state_dict, out)
 
 
 def run_load_checkpoint(
@@ -663,7 +684,10 @@ def run_load_checkpoint(
     Returns:
         int: the previously-serialized number of iterations.
     """
-    raise NotImplementedError
+    state_dict = torch.load(src)
+    model.load_state_dict(state_dict["model"])
+    optimizer.load_state_dict(state_dict["optimizer"])
+    return state_dict["iteration"]
 
 
 def get_tokenizer(
