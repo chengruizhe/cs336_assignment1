@@ -66,6 +66,7 @@ class Transformer(nn.Module):
         dtype: torch.dtype | None = None,
     ) -> None:
         super().__init__()
+        self.context_length = context_length
         self.token_embeddings = Embedding(
             num_embeddings=vocab_size,
             embedding_dim=d_model,

@@ -613,7 +613,7 @@ def run_get_lr_cosine_schedule(
     min_learning_rate: float,
     warmup_iters: int,
     cosine_cycle_iters: int,
-):
+) -> float:
     """
     Given the parameters of a cosine learning rate decay schedule (with linear
     warmup) and an iteration number, return the learning rate at the given
