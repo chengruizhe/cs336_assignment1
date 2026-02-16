@@ -106,7 +106,7 @@ class Transformer(nn.Module):
     def forward(
         self,
         in_indices: Int[Tensor, "b s"],
-    ) -> Float[Tensor, "... s d_model"]:
+    ) -> Float[Tensor, "b s d_model"]:
         x = self.token_embeddings(in_indices)
         for layer in self.layers:
             x = layer(x)
