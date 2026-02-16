@@ -1,7 +1,7 @@
 import pathlib
 from tqdm import tqdm
 import numpy as np
-from tests.tokenizer import Tokenizer
+from cs336_basics.tokenizer import Tokenizer
 from cs336_basics.pretokenization_example import find_chunk_boundaries
 
 

@@ -15,7 +15,7 @@ from joblib import Parallel, delayed
 
 from tests.conftest import d_model
 from .indexed_heap import IndexedHeap
-from .tokenizer import Tokenizer
+from ..cs336_basics.tokenizer import Tokenizer
 from cs336_basics.linear import Linear
 from cs336_basics.embedding import Embedding
 from cs336_basics.rmsnorm import RMSNorm
