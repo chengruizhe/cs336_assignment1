@@ -58,9 +58,11 @@ class Trainer:
             device=self.device,
             dtype=self.dtype,
         ).to(self.device)
+        self.checkpoint_model = self.model
+        self.model = self._compile_model(self.model)
         self.loss_fn = CrossEntropyLoss()
         self.optimizer = AdamW(
-            self.model.parameters(),
+            self.checkpoint_model.parameters(),
             lr=cfg.optimizer.alpha,
             betas=(cfg.optimizer.beta1, cfg.optimizer.beta2),
             weight_decay=cfg.optimizer.weight_decay,
@@ -76,7 +78,7 @@ class Trainer:
             if not resume_path.exists():
                 raise FileNotFoundError(f"Checkpoint not found: {resume_path}")
             self.global_step = run_load_checkpoint(
-                resume_path, self.model, self.optimizer
+                resume_path, self.checkpoint_model, self.optimizer
             )
             tqdm.write(f"Resumed from {resume_path} at iteration {self.global_step}")
 
@@ -108,7 +110,7 @@ class Trainer:
                 )
                 loss.backward()
                 run_gradient_clipping(
-                    self.model.parameters(), self.cfg.optimizer.max_grad_norm
+                    self.checkpoint_model.parameters(), self.cfg.optimizer.max_grad_norm
                 )
                 self.optimizer.step()
                 progress.update(1)
@@ -156,7 +158,10 @@ class Trainer:
                 ):
                     ckpt_path = self._checkpoint_path(self.global_step)
                     run_save_checkpoint(
-                        self.model, self.optimizer, self.global_step, ckpt_path
+                        self.checkpoint_model,
+                        self.optimizer,
+                        self.global_step,
+                        ckpt_path,
                     )
                     tqdm.write(f"Saved checkpoint: {ckpt_path}")
         finally:
@@ -238,6 +243,21 @@ class Trainer:
         self.cfg.logging.wandb_run_id = run.id
         save_resolved_config(self.cfg, self.run_dir / "config.resolved.json")
         return run
+
+    def _compile_model(self, model: torch.nn.Module) -> torch.nn.Module:
+        if not self.cfg.compile_model:
+            return model
+        compiled = torch.compile(
+            model,
+            mode=self.cfg.compile_mode,
+            fullgraph=self.cfg.compile_fullgraph,
+            dynamic=self.cfg.compile_dynamic,
+        )
+        tqdm.write(
+            "Enabled torch.compile "
+            f"(mode={self.cfg.compile_mode}, fullgraph={self.cfg.compile_fullgraph}, dynamic={self.cfg.compile_dynamic})"
+        )
+        return compiled
 
     def _log(self, metrics: dict[str, float], step: int) -> None:
         if self.wandb_run is not None:

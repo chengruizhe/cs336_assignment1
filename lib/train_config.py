@@ -74,6 +74,10 @@ class TrainConfig:
     max_iters: int | None = None
     total_token_processed: int | None = 32768 * 1000
     device: str = "auto"
+    compile_model: bool = False
+    compile_mode: str = "default"
+    compile_fullgraph: bool = False
+    compile_dynamic: bool = False
     model: ModelConfig = field(default_factory=ModelConfig)
     optimizer: OptimizerConfig = field(default_factory=OptimizerConfig)
     data: DataConfig = field(default_factory=DataConfig)

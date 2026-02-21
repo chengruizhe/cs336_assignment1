@@ -5,6 +5,10 @@
 seed = 615
 total_token_processed = 327680000
 device = "auto"
+compile_model = true
+compile_mode = "default"
+compile_fullgraph = true
+compile_dynamic = true
 
 [model]
 vocab_size = 10000
