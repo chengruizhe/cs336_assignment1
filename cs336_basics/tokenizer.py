@@ -2,7 +2,7 @@ import pathlib
 import regex
 import json
 from typing import Iterable
-from ..tests.common import gpt2_bytes_to_unicode
+from tests.common import gpt2_bytes_to_unicode
 
 class Tokenizer:
     def __init__(

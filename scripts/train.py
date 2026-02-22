@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import json
+import argparse
 import sys
 import time
 from dataclasses import asdict
@@ -18,7 +18,7 @@ from cs336_basics.adamw import AdamW
 from cs336_basics.cross_entropy import CrossEntropyLoss
 from cs336_basics.transformer import Transformer
 from lib.memmap_dataset import MemmapTokenDataset
-from lib.train_config import TrainConfig, load_train_config, parse_args
+from lib.train_config import TrainConfig
 from lib.train_utils import (
     prepare_experiment_dir,
     resolve_device,
@@ -39,6 +39,11 @@ class Trainer:
         self.cfg = cfg
         self.device = resolve_device(cfg.device)
         self.dtype = resolve_torch_dtype(cfg.model.dtype)
+        tqdm.write(
+            "Runtime: "
+            f"device={self.device}, dtype={self.dtype}, "
+            f"mps_available={torch.backends.mps.is_available()}"
+        )
         torch.manual_seed(cfg.seed)
         np.random.seed(cfg.seed)
         self.run_dir = prepare_experiment_dir(self.cfg)
@@ -234,6 +239,7 @@ class Trainer:
         import wandb  # type: ignore
 
         run = wandb.init(
+            dir=self.run_dir,
             project=self.cfg.logging.wandb_project,
             entity=self.cfg.logging.wandb_entity,
             name=self.cfg.logging.wandb_run_name,
@@ -247,15 +253,22 @@ class Trainer:
     def _compile_model(self, model: torch.nn.Module) -> torch.nn.Module:
         if not self.cfg.compile_model:
             return model
+        compile_backend = (
+            "aot_eager" if self.device == torch.device("mps") else "inductor"
+        )
         compiled = torch.compile(
             model,
             mode=self.cfg.compile_mode,
             fullgraph=self.cfg.compile_fullgraph,
             dynamic=self.cfg.compile_dynamic,
+            backend=compile_backend,
         )
         tqdm.write(
             "Enabled torch.compile "
-            f"(mode={self.cfg.compile_mode}, fullgraph={self.cfg.compile_fullgraph}, dynamic={self.cfg.compile_dynamic})"
+            f"(mode={self.cfg.compile_mode}, "
+            f"fullgraph={self.cfg.compile_fullgraph},"
+            f"dynamic={self.cfg.compile_dynamic},"
+            f"backend={compile_backend})"
         )
         return compiled
 
@@ -265,11 +278,16 @@ class Trainer:
 
 
 def main() -> None:
-    args = parse_args()
-    cfg = load_train_config(args)
-    if args.print_config:
-        print(json.dumps(asdict(cfg), indent=2))
-        return
+    parser = argparse.ArgumentParser(description="Train a Transformer LM from config.")
+    parser.add_argument(
+        "--config",
+        type=str,
+        required=True,
+        help="Path to .toml or .json training config.",
+    )
+    args = parser.parse_args()
+
+    cfg = TrainConfig.load(args.config)
     trainer = Trainer(cfg)
     trainer.train()
 

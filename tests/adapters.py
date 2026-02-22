@@ -15,7 +15,7 @@ from joblib import Parallel, delayed
 
 from tests.conftest import d_model
 from .indexed_heap import IndexedHeap
-from ..cs336_basics.tokenizer import Tokenizer
+from cs336_basics.tokenizer import Tokenizer
 from cs336_basics.linear import Linear
 from cs336_basics.embedding import Embedding
 from cs336_basics.rmsnorm import RMSNorm
@@ -524,16 +524,22 @@ def run_get_batch(
     """
     # This is so that max_start_index still has a label for next word.
     max_start_index = len(dataset) - context_length
-    indices = torch.randperm(max_start_index, device=device)[:batch_size]
+    if max_start_index <= 0:
+        raise ValueError(
+            f"Dataset too small for context_length={context_length}: {len(dataset)} tokens"
+        )
+    # Sampling with replacement avoids constructing a huge randperm on large corpora.
+    indices = torch.randint(0, max_start_index, (batch_size,), device="cpu")
 
     input_sequences = []
     labels = []
     for idx in indices:
+        i = int(idx.item())
         input_sequences.append(
-            torch.from_numpy(dataset[idx : idx + context_length]).long()
+            torch.from_numpy(dataset[i : i + context_length].copy()).long()
         )
         labels.append(
-            torch.from_numpy(dataset[idx + 1 : idx + context_length + 1]).long()
+            torch.from_numpy(dataset[i + 1 : i + context_length + 1].copy()).long()
         )
 
     r1 = torch.stack(input_sequences).to(device=device)

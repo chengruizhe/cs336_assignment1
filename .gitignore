@@ -170,4 +170,5 @@ cython_debug/
 # Project
 data/
 models/
+experiments/
 .DS_Store
