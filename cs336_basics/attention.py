@@ -47,6 +47,7 @@ class MultiHeadSelfAttention(nn.Module):
         rope: RotaryPositionalEmbedding | None = None,
         device: torch.device | None = None,
         dtype: torch.dtype | None = None,
+        max_seq_len: int = 2048,
     ) -> None:
         super().__init__()
         self.num_heads = num_heads
@@ -68,6 +69,11 @@ class MultiHeadSelfAttention(nn.Module):
         )
         self.rope = rope
         self.sdpa = ScaledDotProductAttention()
+        self.register_buffer(
+            "causal_mask",
+            torch.tril(torch.ones(max_seq_len, max_seq_len, dtype=torch.bool)),
+            persistent=False,
+        )
 
     def forward(
         self,
