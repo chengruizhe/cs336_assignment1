@@ -1,0 +1,11 @@
+name: tinystories_lr_grid
+method: grid
+project: cs336_assignment1
+
+metric:
+  name: val/loss
+  goal: minimize
+
+parameters:
+  optimizer.max_learning_rate:
+    values: [0.01, 0.003, 0.001, 0.0001]

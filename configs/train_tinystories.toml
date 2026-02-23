@@ -20,7 +20,7 @@ wandb_mode = "online"
 
 [checkpoint]
 out_dir = "experiments"
-save_interval = 500
+save_interval = 5000
 run_name = "tinystories_test_run2"
 
 [model]
@@ -36,7 +36,7 @@ dtype = "float32"
 [optimizer]
 max_learning_rate = 3e-4
 min_learning_rate = 3e-5
-warmup_iters = 1000
+warmup_iters = 200
 alpha = 0.001
 weight_decay = 0.1
 beta1 = 0.9

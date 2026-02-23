@@ -9,6 +9,7 @@ from typing import Any
 import numpy as np
 import torch
 
+from cs336_basics.transformer import Transformer
 from lib.train_config import TrainConfig
 
 
@@ -45,14 +46,35 @@ def resolve_numpy_dtype(dtype_name: str) -> np.dtype:
     return np.dtype(mapping[dtype_name])
 
 
-def prepare_experiment_dir(cfg: TrainConfig) -> Path:
+def prepare_experiment_dir(cfg: TrainConfig) -> tuple[TrainConfig, Path]:
     run_id = cfg.checkpoint.run_id or datetime.now().strftime("%Y%m%d_%H%M%S")
-    cfg.checkpoint.run_id = run_id
+    cfg = cfg.with_flat_updates({"checkpoint.run_id": run_id})
     run_dir = Path(cfg.checkpoint.out_dir) / f"{cfg.checkpoint.run_name}_{run_id}"
     run_dir.mkdir(parents=True, exist_ok=True)
-    return run_dir
+    return cfg, run_dir
 
 
 def save_resolved_config(cfg: TrainConfig, out_path: Path) -> None:
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(json.dumps(asdict(cfg), indent=2, sort_keys=True))
+
+
+def load_model(config_path: str | Path) -> Transformer:
+    cfg = TrainConfig.from_file(config_path)
+    if cfg.model.vocab_size is None:
+        raise ValueError("model.vocab_size must be set in config to build Transformer.")
+
+    device = resolve_device(cfg.device)
+    dtype = resolve_torch_dtype(cfg.model.dtype)
+    model = Transformer(
+        vocab_size=cfg.model.vocab_size,
+        context_length=cfg.model.context_length,
+        num_layers=cfg.model.num_layers,
+        d_model=cfg.model.d_model,
+        num_heads=cfg.model.num_heads,
+        d_ff=cfg.model.d_ff,
+        rope_theta=cfg.model.rope_theta,
+        device=device,
+        dtype=dtype,
+    ).to(device)
+    return model

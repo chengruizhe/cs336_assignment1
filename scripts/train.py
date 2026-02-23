@@ -5,9 +5,11 @@ import sys
 import time
 from dataclasses import asdict
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import torch
+import wandb
 from tqdm import tqdm
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -35,7 +37,7 @@ from tests.adapters import (
 
 
 class Trainer:
-    def __init__(self, cfg: TrainConfig) -> None:
+    def __init__(self, cfg: TrainConfig, wandb_run: Any | None = None) -> None:
         self.cfg = cfg
         self.device = resolve_device(cfg.device)
         self.dtype = resolve_torch_dtype(cfg.model.dtype)
@@ -46,7 +48,7 @@ class Trainer:
         )
         torch.manual_seed(cfg.seed)
         np.random.seed(cfg.seed)
-        self.run_dir = prepare_experiment_dir(self.cfg)
+        self.cfg, self.run_dir = prepare_experiment_dir(self.cfg)
         self.train_data, self.val_data = self._load_datasets()
         assert (
             self.cfg.model.vocab_size is not None
@@ -74,7 +76,7 @@ class Trainer:
             eps=cfg.optimizer.eps,
         )
         self.global_step = 0
-        self.wandb_run = self._init_wandb()
+        self.wandb_run = self._init_wandb(wandb_run)
         save_resolved_config(self.cfg, self.run_dir / "config.resolved.json")
 
     def train(self) -> None:
@@ -232,11 +234,15 @@ class Trainer:
             )
         )
 
-    def _init_wandb(self):
+    def _init_wandb(self, wandb_run: wandb.Run | None) -> wandb.Run | None:
+        if wandb_run is not None:
+            run = wandb_run
+            self.cfg = self.cfg.with_flat_updates({"logging.wandb_run_id": run.id})
+            save_resolved_config(self.cfg, self.run_dir / "config.resolved.json")
+            return run
+        
         if not self.cfg.logging.use_wandb:
             return None
-
-        import wandb  # type: ignore
 
         run = wandb.init(
             dir=self.run_dir,
@@ -246,7 +252,7 @@ class Trainer:
             mode=self.cfg.logging.wandb_mode,
             config=asdict(self.cfg),
         )
-        self.cfg.logging.wandb_run_id = run.id
+        self.cfg = self.cfg.with_flat_updates({"logging.wandb_run_id": run.id})
         save_resolved_config(self.cfg, self.run_dir / "config.resolved.json")
         return run
 

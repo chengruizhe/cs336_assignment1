@@ -171,4 +171,5 @@ cython_debug/
 data/
 models/
 experiments/
+wandb/
 .DS_Store
