@@ -38,6 +38,9 @@ class ScaledDotProductAttention(nn.Module):
 
         with nvtx.range("computing softmax"):
             scores = self.softmax(scores, dim=-1)
+            # Keep attention probabilities in the same dtype as V so einsum/einx
+            # kernels don't fail under mixed precision.
+            scores = scores.to(dtype=V.dtype)
 
         with nvtx.range("final matmul"):
             output = einx.dot(

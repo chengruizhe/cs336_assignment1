@@ -9,6 +9,7 @@ compile_model = false
 compile_mode = "default"
 compile_fullgraph = false
 compile_dynamic = false
+profile_memory = true
 
 [logging]
 log_interval = 10
@@ -21,17 +22,26 @@ wandb_mode = "online"
 [checkpoint]
 out_dir = "experiments"
 save_interval = 5000
-run_name = "tinystories_test_run2"
+run_name = "test_mem_profile_large"
 
 [model]
 vocab_size = 10000
 context_length = 256
 rope_theta = 10000.0
-dtype = "float32"
-num_layers = 12 # small
-d_model = 768
-num_heads = 12
-d_ff = 3072
+dtype = "bfloat16"
+# num_layers = 12 # small
+# d_model = 768
+# num_heads = 12
+# d_ff = 3072
+num_layers = 36 # large
+d_model = 1280
+num_heads = 20
+d_ff = 5120
+# num_layers = 32 # 2.7B
+# d_model = 2560
+# num_heads = 32
+# d_ff = 10240
+mixed_precision = true
 
 [optimizer]
 max_learning_rate = 3e-4
@@ -49,4 +59,4 @@ zero_grad_set_to_none = true
 train_bin_path = "data/TinyStoriesV2-GPT4-valid-tokens.bin"
 val_bin_path = "data/TinyStoriesV2-GPT4-valid-tokens.bin"
 token_dtype = "uint16"
-batch_size = 32
+batch_size = 4

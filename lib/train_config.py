@@ -17,6 +17,7 @@ class ModelConfig(ConfigBase):
     d_ff: int = 1536
     rope_theta: float = 10000.0
     dtype: str = "float32"
+    mixed_precision: bool = False
 
 
 @dataclass(frozen=True)
@@ -70,12 +71,13 @@ class CheckpointConfig(ConfigBase):
 class TrainConfig(ConfigBase):
     seed: int = 42
     max_iters: int | None = None
-    total_token_processed: int | None = 32768 * 1000
+    total_token_processed: int | None = None
     device: str = "auto"
     compile_model: bool = False
     compile_mode: str = "default"
     compile_fullgraph: bool = False
     compile_dynamic: bool = False
+    profile_memory: bool = False
     model: ModelConfig = field(default_factory=ModelConfig)
     optimizer: OptimizerConfig = field(default_factory=OptimizerConfig)
     data: DataConfig = field(default_factory=DataConfig)
