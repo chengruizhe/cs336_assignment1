@@ -28,10 +28,15 @@ vocab_size = 10000
 context_length = 256
 rope_theta = 10000.0
 dtype = "float32"
-num_layers = 12 # small
-d_model = 768
-num_heads = 12
-d_ff = 3072
+# num_layers = 12 # small
+# d_model = 768
+# num_heads = 12
+# d_ff = 3072
+num_layers = 36 # large
+d_model = 1280
+num_heads = 20
+d_ff = 5120
+mixed_precision = false
 
 [optimizer]
 max_learning_rate = 3e-4
@@ -49,4 +54,4 @@ zero_grad_set_to_none = true
 train_bin_path = "data/TinyStoriesV2-GPT4-valid-tokens.bin"
 val_bin_path = "data/TinyStoriesV2-GPT4-valid-tokens.bin"
 token_dtype = "uint16"
-batch_size = 32
+batch_size = 4

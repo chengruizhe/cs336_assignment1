@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import sys
 import time
+import contextlib
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any
@@ -42,10 +43,11 @@ class Trainer:
         self.cfg = cfg
         self.device = resolve_device(cfg.device)
         self.dtype = resolve_torch_dtype(cfg.model.dtype)
+        self.mixed_precision = cfg.model.mixed_precision
         tqdm.write(
             "Runtime: "
             f"device={self.device}, dtype={self.dtype}, "
-            f"mps_available={torch.backends.mps.is_available()}"
+            f"mixed_precision={self.mixed_precision}"
         )
         torch.manual_seed(cfg.seed)
         np.random.seed(cfg.seed)
@@ -90,6 +92,12 @@ class Trainer:
             )
             tqdm.write(f"Resumed from {resume_path} at iteration {self.global_step}")
 
+        autocast_ctx = (
+            contextlib.nullcontext()
+            if not self.mixed_precision
+            else torch.autocast(device_type=self.cfg.device, dtype=self.dtype)
+        )
+
         t0 = time.time()
         progress = tqdm(
             total=self.cfg.max_iters,
@@ -105,31 +113,35 @@ class Trainer:
                     group["lr"] = lr
 
                 self.model.train()
-                
+
                 with nvtx.range("Data loading"):
                     x, y = self.train_data.sample_batch(
                         batch_size=self.cfg.data.batch_size,
                         context_length=self.cfg.model.context_length,
                         device=self.device,
                     )
-                
-                with nvtx.range("Foward pass"):
-                    logits = self.model(x)
-                
-                with nvtx.range("Compute loss"):
-                    loss = self.loss_fn(logits.reshape(-1, logits.shape[-1]), y.reshape(-1))
-                
+
+                with autocast_ctx:
+                    with nvtx.range("Foward pass"):
+                        logits = self.model(x)
+
+                    with nvtx.range("Compute loss"):
+                        loss = self.loss_fn(
+                            logits.reshape(-1, logits.shape[-1]), y.reshape(-1)
+                        )
+
                 with nvtx.range("Backward pass"):
                     self.optimizer.zero_grad(
                         set_to_none=self.cfg.optimizer.zero_grad_set_to_none
                     )
                     loss.backward()
-                    
+
                 with nvtx.range("Gradient clipping"):
                     run_gradient_clipping(
-                        self.checkpoint_model.parameters(), self.cfg.optimizer.max_grad_norm
+                        self.checkpoint_model.parameters(),
+                        self.cfg.optimizer.max_grad_norm,
                     )
-                
+
                 with nvtx.range("Optimizer step"):
                     self.optimizer.step()
                 progress.update(1)
@@ -252,7 +264,7 @@ class Trainer:
             self.cfg = self.cfg.with_flat_updates({"logging.wandb_run_id": run.id})
             save_resolved_config(self.cfg, self.run_dir / "config.resolved.json")
             return run
-        
+
         if not self.cfg.logging.use_wandb:
             return None
 
