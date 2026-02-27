@@ -9,6 +9,7 @@ from typing import Any
 
 import numpy as np
 import torch
+import torch.cuda.nvtx as nvtx
 import wandb
 from tqdm import tqdm
 
@@ -104,22 +105,33 @@ class Trainer:
                     group["lr"] = lr
 
                 self.model.train()
-                x, y = self.train_data.sample_batch(
-                    batch_size=self.cfg.data.batch_size,
-                    context_length=self.cfg.model.context_length,
-                    device=self.device,
-                )
-
-                logits = self.model(x)
-                loss = self.loss_fn(logits.reshape(-1, logits.shape[-1]), y.reshape(-1))
-                self.optimizer.zero_grad(
-                    set_to_none=self.cfg.optimizer.zero_grad_set_to_none
-                )
-                loss.backward()
-                run_gradient_clipping(
-                    self.checkpoint_model.parameters(), self.cfg.optimizer.max_grad_norm
-                )
-                self.optimizer.step()
+                
+                with nvtx.range("Data loading"):
+                    x, y = self.train_data.sample_batch(
+                        batch_size=self.cfg.data.batch_size,
+                        context_length=self.cfg.model.context_length,
+                        device=self.device,
+                    )
+                
+                with nvtx.range("Foward pass"):
+                    logits = self.model(x)
+                
+                with nvtx.range("Compute loss"):
+                    loss = self.loss_fn(logits.reshape(-1, logits.shape[-1]), y.reshape(-1))
+                
+                with nvtx.range("Backward pass"):
+                    self.optimizer.zero_grad(
+                        set_to_none=self.cfg.optimizer.zero_grad_set_to_none
+                    )
+                    loss.backward()
+                    
+                with nvtx.range("Gradient clipping"):
+                    run_gradient_clipping(
+                        self.checkpoint_model.parameters(), self.cfg.optimizer.max_grad_norm
+                    )
+                
+                with nvtx.range("Optimizer step"):
+                    self.optimizer.step()
                 progress.update(1)
 
                 train_loss = float(loss.detach().cpu().item())
@@ -293,7 +305,7 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    cfg = TrainConfig.load(args.config)
+    cfg = TrainConfig.from_file(args.config)
     trainer = Trainer(cfg)
     trainer.train()
 

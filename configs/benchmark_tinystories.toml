@@ -1,0 +1,52 @@
+# TinyStories training config for scripts/train.py
+# Run:
+#   python scripts/train.py --config configs/train_tinystories.toml
+
+seed = 615
+max_iters = 1
+device = "cuda"
+compile_model = false
+compile_mode = "default"
+compile_fullgraph = false
+compile_dynamic = false
+
+[logging]
+log_interval = 10
+eval_interval = 200
+eval_batches = 4
+use_wandb = false
+wandb_project = "cs336_assignment1"
+wandb_mode = "online"
+
+[checkpoint]
+out_dir = "experiments"
+save_interval = 5000
+run_name = "tinystories_test_run2"
+
+[model]
+vocab_size = 10000
+context_length = 256
+rope_theta = 10000.0
+dtype = "float32"
+num_layers = 12 # small
+d_model = 768
+num_heads = 12
+d_ff = 3072
+
+[optimizer]
+max_learning_rate = 3e-4
+min_learning_rate = 3e-5
+warmup_iters = 200
+alpha = 0.001
+weight_decay = 0.1
+beta1 = 0.9
+beta2 = 0.95
+eps = 1e-8
+max_grad_norm = 1.0
+zero_grad_set_to_none = true
+
+[data]
+train_bin_path = "data/TinyStoriesV2-GPT4-valid-tokens.bin"
+val_bin_path = "data/TinyStoriesV2-GPT4-valid-tokens.bin"
+token_dtype = "uint16"
+batch_size = 32

@@ -2,6 +2,7 @@ import torch
 from torch import Tensor
 import torch.nn as nn
 from torch import Tensor
+import torch.cuda.nvtx as nvtx
 from jaxtyping import Float, Bool, Int
 import einx
 
@@ -15,6 +16,7 @@ class ScaledDotProductAttention(nn.Module):
         super().__init__()
         self.softmax = Softmax()
 
+    @nvtx.range("scaled dot product attention")
     def forward(
         self,
         Q: Float[Tensor, "... queries d_k"],
@@ -22,19 +24,28 @@ class ScaledDotProductAttention(nn.Module):
         V: Float[Tensor, "... values d_v"],
         mask: Bool[Tensor, "... queries keys"] | None = None,
     ) -> Float[Tensor, "... queries d_v"]:
-        QK = einx.dot("... queries d_k, ... keys d_k -> ... queries keys", Q, K)
         d_k = Q.shape[-1]
         assert K.shape[-2] == V.shape[-2]
 
-        scores = QK / (d_k**0.5)
-        neg_inf = torch.finfo(scores.dtype).min
-        if mask is not None:
-            scores = scores.masked_fill(~mask, neg_inf)
-        return einx.dot(
-            "... queries keys, ... keys d_v -> ... queries d_v",
-            self.softmax(scores, dim=-1),
-            V,
-        )
+        with nvtx.range("QK attention scores"):
+            QK = einx.dot("... queries d_k, ... keys d_k -> ... queries keys", Q, K)
+            scores = QK / (d_k**0.5)
+
+        with nvtx.range("Apply mask"):
+            neg_inf = torch.finfo(scores.dtype).min
+            if mask is not None:
+                scores = scores.masked_fill(~mask, neg_inf)
+
+        with nvtx.range("computing softmax"):
+            scores = self.softmax(scores, dim=-1)
+
+        with nvtx.range("final matmul"):
+            output = einx.dot(
+                "... queries keys, ... keys d_v -> ... queries d_v",
+                scores,
+                V,
+            )
+        return output
 
 
 class MultiHeadSelfAttention(nn.Module):
