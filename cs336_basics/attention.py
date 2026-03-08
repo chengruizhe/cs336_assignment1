@@ -5,6 +5,7 @@ from torch import Tensor
 import torch.cuda.nvtx as nvtx
 from jaxtyping import Float, Bool, Int
 import einx
+import einops
 
 from .softmax import Softmax
 from .rope import RotaryPositionalEmbedding
@@ -96,9 +97,9 @@ class MultiHeadSelfAttention(nn.Module):
     ) -> Float[Tensor, "... seq_len d_out"]:
         seq_len = x.shape[-2]
         x = self.qkv_proj(x)
-        Q, K, V = einx.rearrange(
-            "... s (three h d_k) -> three ... h s d_k",
+        Q, K, V = einops.rearrange(
             x,
+            "... s (three h d_k) -> three ... h s d_k",
             h=self.num_heads,
             three=3,
             d_k=self.d_k,
@@ -118,9 +119,9 @@ class MultiHeadSelfAttention(nn.Module):
             )
         )
         output = self.sdpa(Q=Q, K=K, V=V, mask=mask)
-        output = einx.rearrange(
-            "... h s d_v -> ... s (h d_v)",
+        output = (
             output,
+            "... h s d_v -> ... s (h d_v)",
         )
         return self.output_proj(output)
 
